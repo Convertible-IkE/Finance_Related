@@ -1,0 +1,241 @@
+---
+title: "PS2"
+author: "Issac Li"
+date: "2/8/2017"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Part I
+
+```{r cars, echo=F}
+ps2=read.csv("/Users/lizhuo/Documents/MGT595/Problem_Set2_2017.txt",sep='\t',fileEncoding="UTF-16LE",skip = 0,header = T)
+colnames(ps2)[1]<-"Date"
+# summary(ps2)
+# There is no missing value
+
+returns=data.frame(matrix(NA,nrow = 10,ncol=3))
+returns[,1]=colMeans(ps2[,c(-1,-12)],na.rm = T)
+returns[,3]=apply(ps2[,c(-1,-12)],2,var)
+returns[,2]=sqrt(returns[,3])
+
+rownames(returns)<-colnames(ps2)[c(-1,-12)]
+colnames(returns)<-c("Mean","SD","Var")
+
+```
+
+1. Find the minimum variance and tangency portfolios of the industries. (hint:  you will need to compute the means (arithmetic average), standard deviations, variances, and covariance matrix of the industries.  The risk-free rate is given in the spreadsheet.)  Comment on the different weights applied to each industry under the MVP and Tangent portfolios.
+
+
+```{r find MVP,echo=F}
+calc_ABCD <-function(mat_returns,return_means,S=cov(mat_returns,use = "complete.obs")){
+  n=nrow(S)
+  inv_S=solve(S)
+  A=as.numeric(rep(1,n)%*%inv_S%*%rep(1,n))
+  B=as.numeric(rep(1,n)%*%inv_S%*%return_means)
+  C=as.numeric(return_means%*%inv_S%*%return_means)
+  delta=A*C-B^2
+  ans=list(A,B,C,delta,inv_S)
+  ans
+  }
+
+ans=calc_ABCD(ps2[,2:11],return_means = returns$Mean)
+A=ans[[1]];B=ans[[2]];C=ans[[3]];delta=ans[[4]];inv_S=ans[[5]]
+n=10
+w_g=(inv_S%*%rep(1,n))/as.numeric(rep(1,n)%*%inv_S%*%rep(1,n))
+```
+
+```{r find Tangent Portfolio,echo=F}
+R=mean(ps2$Risk.free.rate)
+w_t=(inv_S%*%(returns$Mean-R))/as.numeric(B-A*R)
+```
+a) Compute the means and standard deviations of the MVP and Tangent portfolios.  Plot the efficient frontier of these 10 industries and plot the 10 industries as well on a mean-standard deviation diagram.  Why does the efficient frontier exhibit the shape that it does (i.e., why is it a parabola)?
+
+```{r Part I a,echo=F,message=F,warning=F}
+result_a=data.frame(matrix(NA,nrow=2,ncol=2))
+colnames(result_a)=c("mean","SD")
+rownames(result_a)=c("MVP","Tangency")
+
+S=cov(ps2[,2:11],use = "complete.obs")
+# means and standard deviations of the MVP and Tangent portfolios
+result_a$mean=rbind(returns$Mean%*%w_g,returns$Mean%*%w_t)
+result_a$Var=rbind(t(w_g)%*%S%*%w_g,t(w_t)%*%S%*%w_t)
+result_a
+
+mu=seq(0,3,0.01)
+SD_2=(A*mu^2-2*B*mu+C)/delta
+e.f=data.frame(cbind(mu,SD_2))
+returns$Industry=rownames(returns)
+require(ggplot2)
+ggplot()+geom_path(data=e.f,aes(x=sqrt(SD_2),y=mu),size=0.5)+geom_point(data=returns,aes(x=SD,y=Mean,color=Industry,fill=Industry),shape=21)+xlim(c(0,20))+ylim(c(0,2.5))+xlab(expression(paste(sigma," standard deviation")))+ylab("Expected Return")+theme_linedraw()
+```
+ 
+b) Comment on the reliability of the mean return estimates for each industry.  Then, artificially change the mean return estimates of each industry by a one standard error increase.  How much does the Tangent portfolio change?  Does the efficient frontier change a lot or a little?
+
+```{r Part I b,echo=F}
+returns$SE=returns$SD/sqrt(nrow(ps2))
+returns$`97.5`=returns$Mean+1.96*returns$SE
+returns$`2.5`=returns$Mean-1.96*returns$SE
+# Print mean estimates with 95% CI, estimates not very good
+t(returns[,c('Mean','2.5','97.5')])
+
+# To increase the mean estimate by one SE, simply add one SE to all returns
+psb=ps2[,2:11]+matrix(rep(returns$SE,nrow(ps2)),ncol = 10,byrow = T)
+ans_b=calc_ABCD(psb,return_means = returns$Mean+returns$SE)
+w_t_b=(ans_b[[5]]%*%(returns$SE+returns$Mean-R))/as.numeric(ans_b[[2]]-ans_b[[1]]*R)
+mu=seq(0,3,0.01)
+plot(sqrt(SD_2),mu,type = "l")
+SD_2b=(ans_b[[1]]*mu^2-2*ans_b[[2]]*mu+ans_b[[3]])/ans_b[[4]]
+lines(sqrt(SD_2b),y=mu,col="dark blue")
+```
+ 
+c) Comment on the reliability of the covariance matrix estimate.  First, assume that all covariances are zero and recompute the efficient frontier using the diagonal matrix of variances as the covariance matrix.  Then, assume very simply that the covariance matrix is just the identity matrix (i.e., a matrix of ones along the diagonal and zeros everywhere else).  Does the mean-variance frontier change a lot or a little, relative to b)?  How important are the covariance terms relative to the variance terms?
+ 
+```{r Part I c,echo=F}
+V=cov(ps2[,2:11],use = "complete.obs")
+V[lower.tri(V,diag = F)]=0
+V[upper.tri(V,diag = F)]=0
+ans_c1=calc_ABCD(psb,return_means = returns$Mean,S = V)
+SD_2c1=(ans_c1[[1]]*mu^2-2*ans_c1[[2]]*mu+ans_c1[[3]])/ans_c1[[4]]
+par(mfrow=c(1,2))
+plot(sqrt(SD_2),mu,type = "l",xlim = c(0,30),lwd=2,col="dark blue")
+lines(sqrt(SD_2c1),y=mu,col="dark red",lwd=2,lty=2)
+
+V2=matrix(0,10,10)
+diag(V2)<-1
+ans_c2=calc_ABCD(psb,return_means = returns$Mean,S=V2)
+SD_2c2=(ans_c2[[1]]*mu^2-2*ans_c2[[2]]*mu+ans_c2[[3]])/ans_c2[[4]]
+plot(sqrt(SD_2),mu,type = "l",xlim = c(0,30),lwd=2,col="dark blue")
+lines(sqrt(SD_2c2),y=mu,col="dark red",lwd=2,lty=2)
+
+```
+ 
+d) Run some simulations similar to what Jorion did in his study.  Using the mean and covariance matrix you calculated in sample from the historical returns, use these parameters to simulate data under a multivariate normal distribution.  
+
+Which portfolio (MVP or Tangency) is estimated with less error?  Why?
+
+```{r Part I d,message=F,echo=F}
+require(MASS)
+t=nrow(ps2)
+n=10
+S=cov(ps2[,2:11],use = "complete.obs")
+
+result_d=data.frame(matrix(NA,ncol = 4, nrow = 1000,dimnames = list(seq(1,1000),c("W_g_mean","W_g_var","W_t_mean","W_t_var"))))
+
+for (i in 1:1000){
+  simulation=mvrnorm(n=t,mu=returns$Mean,Sigma = S,empirical=F)
+  simulation.mean=colMeans(simulation)
+  ans_s=calc_ABCD(simulation,return_means = simulation.mean)
+  w_g_s=(ans_s[[5]]%*%rep(1,n))/as.numeric(rep(1,n)%*%ans_s[[5]]%*%rep(1,n))
+  w_t_s=(ans_s[[5]]%*%(simulation.mean-R))/as.numeric(ans_s[[2]]-ans_s[[1]]*R)
+  result_d$W_g_var[i]=t(w_g_s)%*%S%*%w_g_s
+  result_d$W_t_var[i]=t(w_t_s)%*%S%*%w_t_s
+  result_d$W_g_mean[i]=returns$Mean%*%w_g_s
+  result_d$W_t_mean[i]=returns$Mean%*%w_t_s
+}
+
+par(mfrow=c(1,2))
+plot(sqrt(SD_2),mu,type = "l",xlim = c(0,15),ylim=c(0.5,2),lwd=2,col="black")
+points(x=sqrt(result_d$W_g_var),y=result_d$W_g_mean,col="dark blue",pch=18)
+points(x=sqrt(result_a$Var[1]),y=result_a$mean[1],col="red",pch=18)
+
+
+plot(sqrt(SD_2),mu,type = "l",xlim = c(0,15),ylim=c(0.5,2),lwd=2,col="black")
+points(x=sqrt(result_d$W_t_var),y=result_d$W_t_mean,col="dark blue",pch=18)
+points(x=sqrt(result_a$Var[2]),y=result_a$mean[2],col="red",pch=18)
+
+``` 
+ 
+e) Now run some simulations under the empirical distribution of returns rather than the normal distribution.  This is called a block bootstrap simulation.
+ 
+How does the estimation error compare under the empirical simulations versus the normal distribution simulations of question d)?
+
+```{r Part I e,message=F,echo=F,warning=F}
+x=seq(t)
+result_e=data.frame(matrix(NA,ncol = 4, nrow = 1000,dimnames = list(seq(1,1000),c("W_g_mean","W_g_var","W_t_mean","W_t_var"))))
+
+for (i in 1:1000){
+  simulation=ps2[sample(x=x,t,replace = T),2:11]
+  simulation.mean=colMeans(simulation)
+  ans_s=calc_ABCD(simulation,return_means = simulation.mean)
+  w_g_s=(ans_s[[5]]%*%rep(1,n))/as.numeric(rep(1,n)%*%ans_s[[5]]%*%rep(1,n))
+  w_t_s=(ans_s[[5]]%*%(simulation.mean-R))/as.numeric(ans_s[[2]]-ans_s[[1]]*R)
+  result_e$W_g_var[i]=t(w_g_s)%*%S%*%w_g_s
+  result_e$W_t_var[i]=t(w_t_s)%*%S%*%w_t_s
+  result_e$W_g_mean[i]=returns$Mean%*%w_g_s
+  result_e$W_t_mean[i]=returns$Mean%*%w_t_s
+}
+
+par(mfrow=c(1,2))
+plot(sqrt(SD_2),mu,type = "l",xlim = c(0,15),ylim=c(0.5,2),lwd=2,col="black")
+points(x=sqrt(result_e$W_g_var),y=result_e$W_g_mean,col="dark blue",pch=18)
+points(x=sqrt(result_a$Var[1]),y=result_a$mean[1],col="red",pch=18)
+
+
+plot(sqrt(SD_2),mu,type = "l",xlim = c(0,15),ylim=c(0.5,2),lwd=2,col="black")
+points(x=sqrt(result_e$W_t_var),y=result_e$W_t_mean,col="dark blue",pch=18)
+points(x=sqrt(result_a$Var[2]),y=result_a$mean[2],col="red",pch=18)
+
+sqrt(apply(result_e,2,var))
+sqrt(apply(result_e,2,var))
+``` 
+
+Quatitatively,We can see from the graph that estimate error of MVP using the normal distribution is smaller than using empirical, while the estimation error of the Tangency portifolio under the normal assumption and using bootstrap are about the same. Quantitatively, we can see the standard deviations of both mean and variance estimates using the normal assumpation (first row) for the MVP are smaller than those for the tangency portfolio. However, the standard deviations of mean estimates using the normal assumpation (first row) for the tangency are bigger than those using the boostrapping while standard deviations of variance estimates using the normal assumpation (first row) for the tangency are smaller than those using the  boostrapping.
+ 
+## Part II 
+Solve by hand the following.  There are three securities A, B, C with mean returns of 17%, 13%, and 9%, respectively.  Furthermore, their standard deviations are 20%, 40%, and 15%, respectively.  The correlation between A and B is 0.50, between B and C is 0.30, and between A and C is zero.  The risk-free rate is 5%.
+ 
+```{r p2,echo=F}
+ret1=c(17,13,9)
+std1=c(2,4,15)
+cov1=matrix(c(0.04,0.04,0,0.04,0.16,0.018,0,0.018,0.0225),nrow=3,byrow=T,dimnames = list(c("A","B","C"),c("A","B","C")))
+cov1=cov1*10000
+R2=5
+  n=3
+  inv_cov1=solve(cov1)
+  A2=as.numeric(rep(1,n)%*%inv_cov1%*%rep(1,n))
+  B2=as.numeric(rep(1,n)%*%inv_cov1%*%ret1)
+  C2=as.numeric(ret1%*%inv_cov1%*%ret1)
+  delta2=A2*C2-B2^2
+
+
+``` 
+a) 
+```{r 2a,echo=F}
+R1=5
+w_g2=rep(1,3)%*%inv_cov1/as.numeric(t(rep(1,3))%*%inv_cov1%*%rep(1,3)) 
+print("The weights of A, B and C for MVP are: ")
+round(w_g2,3)
+paste("The expected mean of MVP is ",round(B2/A2,3))
+paste("The standard deviation of MVP is ",round(sqrt(1/A2),3))
+
+w_t2=(inv_cov1%*%(ret1-R1))/as.numeric(B2-A2*R2)
+print("The weights of A, B and C for Tangency Portfolio are: ")
+round(t(w_t2),3)
+paste("The expected mean of Tangency is ",round((C2-B2*R2)/(B2-A2*R2),3))
+paste("The standard deviation of Tangency is ",round(sqrt((C2-2*R2*B2+R2^2*A2)/(B2-A2*R2)^2),3))
+```
+b) Write the equation for the efficient frontier of these three assets.
+ 
+c) Find the portfolio of A, B, C that gives the lowest possible variance for a return of 13%, and find the portfolio that gives the highest possible return for a standard deviation of 15%.  Calculate the Sharpe ratios of these two portfolios.
+
+If we plug in $\mu = 13$ into the equation $\sigma^2 = \frac{A\mu^2-2B\mu+C}{\delta}$, then we can find the SD of portfolio 1, 
+
+```{r 2c, echo=F } 
+mu=13
+var2a=(A2*mu^2-2*B2*mu+C2)/delta2
+sqrt(var2a)
+``` 
+
+If we plug in $\sigma = 15$ into the larger solution of the quadratic formula: $\mu=\frac{2B+\sqrt{4B^2-4A(C-\delta \sigma^2)}}{2A}$, then we can find the $\mu$ of portfolio 2,
+
+```{r, 2c2, echo =F}
+sigma=15
+mu=(2*B2+sqrt(4*B2^2-A2*4*(C2-delta2*sigma^2)))/(2*A2)
+mu
+```
+
+And then the sharpe ratio is $\frac{R_p-R_f}{\sigma_p}=\frac{15.17-5}{11.88}=0.856$
