@@ -1,0 +1,324 @@
+---
+title: "PS3"
+author: "Issac Li"
+date: "2/22/2017"
+output: 
+    word_document:
+    fig_width: 10
+    fig_height: 8
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F,warning = F,message = F)
+```
+
+```{r load data}
+require(XLConnect)
+path="/Users/lizhuo/Documents/MGT595/Problem_Set3_2017.xls"
+
+rfs=readWorksheetFromFile(file=path,sheet = "Market_proxy", startRow=6,header=T,startCol = 0, endCol = 3)
+
+header.25=readWorksheetFromFile(path,sheet = "25_Size_BEME_Portfolios", startRow=2,header=F,startCol = 0, endCol = 26,endRow=3)
+
+wrs.25=readWorksheetFromFile(path,sheet = "25_Size_BEME_Portfolios", startRow=3,header=T,startCol = 0, endCol = 26)
+sizes.25=readWorksheetFromFile(path,sheet = "25_Size_BEME_Portfolios", startRow=3,header=T,startCol = 27, endCol = 53)
+bms.25=readWorksheetFromFile(path,sheet = "25_Size_BEME_Portfolios", startRow=3,header=T,startCol = 54)
+
+wrs_ind=readWorksheetFromFile(path,sheet = "49_Industry_Portfolios", startRow=7,header=T,startCol = 0, endCol = 50)
+sizes_ind=readWorksheetFromFile(path,sheet = "49_Industry_Portfolios", startRow=7,header=T,startCol = 52, endCol = 101)
+bms_ind=readWorksheetFromFile(path,sheet = "49_Industry_Portfolios", startRow=7,header=T,startCol = 103,endCol = 152)
+
+wrs_ind[wrs_ind==c("-99.99")]<-NA
+sizes_ind[sizes_ind==c("-99.99")]<-NA
+bms_ind[bms_ind==c("-99.99")]<-NA
+
+```
+
+## Part I
+
+$\gamma_0$ is the cofficient of return on a portfolio that is uncorrelated with Market and $\gamma_M$ is the price of risk of assest.
+
+```{r p1b}
+data=merge(rfs,wrs_ind,by = "Col1")
+# 1
+inds=colnames(wrs_ind)[-1]
+betas=matrix(NA,nrow=49,ncol = 1,dimnames = list(inds,c("beta")))
+for( i in 1:49){
+form = paste(inds[i],"~Mkt.RF")
+res=lm(formula = form,data = data,na.action = na.omit)
+betas[i]=res$coefficients[2]
+}
+
+# 2 
+res=matrix(NA,nrow = nrow(wrs_ind),ncol = 2,dimnames = list(wrs_ind$Col1,c("alpha","gamma.M")))
+
+
+for( i in 1:nrow(wrs_ind)){
+fit=lm(formula = t(wrs_ind[i,-1])~betas,na.action = na.omit)
+res[i,1]=fit$coefficients[1]
+res[i,2]=fit$coefficients[2]
+}
+
+# 3
+# Average
+means=colMeans(res,na.rm = T)
+sds=apply(res,2,function(x) sqrt(var(x)))
+ts=abs(means-colMeans(rfs[,3:2],na.rm = T))/sds*sqrt(nrow(res))
+2*pt(ts,df=1083,lower.tail = F)
+print("The mean of the estimates are:")
+round(means,3)
+paste("The SD of the estimates are:")
+round(sds,3)
+paste("The T-stats of the estimates are:")
+round(ts,3)
+print("P-values of T-test:")
+2*pt(ts,df=1083,lower.tail = F)
+```
+
+We can reject the hypothesis that the proxy for the market portfolio is mean variance efficient at 95% confidence leve since the p-value for the intercept is much smaller than 0.05, meaning that the CAPM assumptions fail and thus the market is no longer mean variance efficient. 
+
+```{r p1c}
+fit2=lm(colMeans(wrs_ind[-1],na.rm = T)~betas)
+```
+
+We can see that the regression in section (c) yields similar but different cofficients point estimate ( for $\gamma_0$: 0.91 vs. 0.81) and ( for $\gamma_M$ 0.12 vs. 0.22). 
+
+```{r p1d}
+require(ggplot2)
+pdata1=data.frame(cbind(colMeans(wrs_ind[-1],na.rm = T),betas))
+qplot(data=pdata1,y = V1,x=beta,ylab="ave(R_i)",xlab = "Beta_i")+stat_smooth(method = lm)
+```
+
+Yes, the plot does represent a positive relationship, as we can see from the 1-st order fit (blue). It should also be the case since the coefficients of betas are all positive. However, the plot should look like a straight line (if we ignore gaussian noises) of a slope of $\gamma_M$ under the assumption of CAPM.
+
+```{r p1e}
+bms.long=data.frame(matrix(NA,nrow = 1092,ncol = 49,dimnames = list(1:1092,inds)))
+for (i in 1:nrow(bms_ind)){
+  for (j in 1:12){
+  bms.long[(i-1)*12+j,]=bms_ind[i,-1]
+  }
+}
+
+bms.long=bms.long[-c(1:6,1092),]
+
+res.e=data.frame(matrix(NA,nrow = nrow(wrs_ind),ncol = 4))
+for( i in 2:nrow(wrs_ind)){
+fit.e=lm(formula = t(wrs_ind[i,-1])~betas+t(log(sizes_ind[i-1,-1]))+t(log(bms.long[i-1,])),na.action = na.omit)
+res.e[i,]=fit.e$coefficients
+}
+colnames(res.e)<-c("alpha","beta","ln(size)","ln(B/M)")
+res.e=res.e[-1,]
+summary(res.e)
+```
+
+If the CAPM holds, $\gamma_{size}$ and $\gamma_{B/M}$ should be zero, since the CAPM states that the expected return of an assest is only related to $Beta$ ($\gamma_M$). We can clearly see here that the values are not zero.
+
+```{r p1e.1}
+means.e=colMeans(res.e,na.rm = T)
+sds.e=apply(res.e,2,function(x) sqrt(var(x)))
+ts.e=abs(means.e-c(colMeans(rfs[,3:2],na.rm = T),0,0))/sds.e*sqrt(nrow(res.e))
+2*pt(ts.e,df=1082,lower.tail = F)
+#plot(colMeans(bms.long,na.rm = T),colMeans(wrs_ind[,-1],na.rm = T))
+#plot(colMeans(sizes_ind[,-1],na.rm = T),colMeans(wrs_ind[,-1],na.rm = T))
+```
+
+We can reject the hypothesis that the proxy for the market portfolio is mean variance efficient because the p-values of the hypotheses that  are significant at 95% level. 
+
+## Part II
+```{r p2.1}
+# b) Estimate Beta
+
+betas2=matrix(NA,nrow=25,ncol = 1,dimnames = list(1:25,c("beta")))
+for( i in 1:25){
+res=lm(formula = wrs.25[,i+1]~rfs$Mkt.RF,na.action = na.omit)
+betas2[i]=res$coefficients[2]
+}
+
+# c) Regress Time-series CAPM
+res2=matrix(NA,nrow = nrow(wrs.25),ncol = 2,dimnames = list(wrs_ind$Col1,c("alpha","gamma.M")))
+
+for( i in 1:nrow(wrs.25)){
+fit=lm(formula = t(wrs.25[i,-1])~betas2,na.action = na.omit)
+res2[i,1]=fit$coefficients[1]
+res2[i,2]=fit$coefficients[2]
+}
+
+# Average and Stats
+means2=colMeans(res2,na.rm = T)
+sds2=apply(res2,2,function(x) sqrt(var(x)))
+ts2=abs(means2-colMeans(rfs[,3:2],na.rm = T))/sds2*sqrt(nrow(res2))
+2*pt(ts2,df=1083,lower.tail = F)
+print("The mean of the estimates are:")
+round(means2,3)
+paste("The SD of the estimates are:")
+round(sds2,3)
+paste("The T-stats of the estimates are:")
+round(ts2,3)
+print("P-values of T-test:")
+2*pt(ts2,df=1083,lower.tail = F)
+
+
+# d)
+mean.return.25=colMeans(wrs.25[,-1],na.rm = T)
+pdata2=data.frame(cbind(mean.return.25,betas2))
+qplot(data=pdata2,y = mean.return.25 ,x=beta,ylab="ave(R_i)",xlab = "Beta_i")+stat_smooth(method = lm)
+
+
+# f)
+# Regress onto Size and B/M
+bms.25.long=data.frame(matrix(NA,nrow = 1092,ncol = 25,dimnames = list(1:1092,1:25)))
+for (i in 1:nrow(bms.25)){
+  for (j in 1:12){
+  bms.25.long[(i-1)*12+j,]=bms.25[i,-1]
+  }
+}
+
+bms.25.long=bms.25.long[-c(1:6,1092),]
+
+res.25.e=data.frame(matrix(NA,nrow = nrow(wrs.25),ncol = 4))
+for( i in 2:nrow(wrs.25)){
+fit.25=lm(formula = t(wrs.25[i,-1])~betas2+t(log(sizes.25[i-1,-1]))+t(log(bms.25.long[i-1,])),na.action = na.omit)
+res.25.e[i,]=fit.25$coefficients
+}
+colnames(res.25.e)<-c("alpha","beta","ln(size)","ln(B/M)")
+res.25.e=res.25.e[-1,]
+
+means2.e=colMeans(res.25.e,na.rm = T)
+sds2.e=apply(res.25.e,2,function(x) sqrt(var(x)))
+ts2.e=abs(means2.e-c(colMeans(rfs[,3:2],na.rm = T),0,0))/sds2.e*sqrt(nrow(res.25.e))
+2*pt(ts2.e,df=1082,lower.tail = F)
+```
+
+```{r p2.2}
+# Tangency Portfolio Calculation
+calc_ABCD <-function(mat_returns,return_means,S=cov(mat_returns,use = "complete.obs")){
+  n=nrow(S)
+  inv_S=solve(S)
+  A=as.numeric(rep(1,n)%*%inv_S%*%rep(1,n))
+  B=as.numeric(rep(1,n)%*%inv_S%*%return_means)
+  C=as.numeric(return_means%*%inv_S%*%return_means)
+  delta=A*C-B^2
+  ans=list(A,B,C,delta,inv_S)
+  ans
+  }
+
+ans=calc_ABCD(wrs.25[,-1],return_means = mean.return.25)
+A=ans[[1]];B=ans[[2]];C=ans[[3]];delta=ans[[4]];inv_S=ans[[5]]
+n=25
+R=mean(rfs$RF)
+w_t=(inv_S%*%(mean.return.25-R))/as.numeric(B-A*R)
+
+# Reconstruct Rm
+Rm=matrix(unlist(wrs.25[,c(-1)]),nrow = 1085,ncol = 25,byrow = F)%*%w_t
+Rm_rf=Rm-rfs$RF
+
+# Calculate Beta 3
+betas3=matrix(NA,nrow=25,ncol = 1,dimnames = list(1:25,c("beta")))
+for( i in 1:25){
+res=lm(formula = wrs.25[,i+1]~Rm_rf,na.action = na.omit)
+betas3[i]=res$coefficients[2]
+}
+
+# c) Regress Time-series CAPM
+res3=matrix(NA,nrow = nrow(wrs.25),ncol = 2,dimnames = list(wrs_ind$Col1,c("alpha","gamma.M")))
+
+for( i in 1:nrow(wrs.25)){
+fit=lm(formula = t(wrs.25[i,-1])~betas3,na.action = na.omit)
+res3[i,1]=fit$coefficients[1]
+res3[i,2]=fit$coefficients[2]
+}
+
+# Average and Stats
+means3=colMeans(res3,na.rm = T)
+sds3=apply(res3,2,function(x) sqrt(var(x)))
+ts3=abs(means3-colMeans(cbind(rfs$RF,Rm-rfs$RF),na.rm = T))/sds3*sqrt(nrow(res3))
+2*pt(ts3,df=1083,lower.tail = F)
+
+print("The mean of the estimates are:")
+round(means3,3)
+paste("The SD of the estimates are:")
+round(sds3,3)
+paste("The T-stats of the estimates are:")
+round(ts3,3)
+print("P-values of T-test:")
+2*pt(ts3,df=1083,lower.tail = F)
+
+# d)
+pdata3=data.frame(cbind(mean.return.25,betas3))
+qplot(data=pdata3,y = mean.return.25 ,x=beta,ylab="ave(R_i)",xlab = "Beta_i")+stat_smooth(method = lm)
+
+```
+
+```{r p2.3}
+# Even year odd month
+ind1.1=c()
+for(i in seq(1,90,2)){
+  for (j in seq(1,11,2)){
+  ind1.1=c(ind1.1,(i-1)*12+j)
+  }}
+ind1.1=c(1,3,5,ind1.1+18)
+# Odd year even month
+ind1.2=ind1.1+11
+ind1.2=c(8,10,ind1.2[-c(268:273)])
+ind1=sort(c(ind1.1,ind1.2))
+
+# The orther half
+ind2= setdiff(1:1085,ind1)
+
+# Repeat c) and d)
+mean.return.25.1=colMeans(wrs.25[ind1,-1],na.rm = T)
+ans=calc_ABCD(wrs.25[ind1,-1],return_means = mean.return.25.1)
+A=ans[[1]];B=ans[[2]];C=ans[[3]];delta=ans[[4]];inv_S=ans[[5]]
+n=25
+R=mean(rfs$RF)
+w_t.1=(inv_S%*%(mean.return.25.1-R))/as.numeric(B-A*R)
+
+mean.return.25.2=colMeans(wrs.25[ind2,-1],na.rm = T)
+ans=calc_ABCD(wrs.25[ind2,-1],return_means = mean.return.25.2)
+A=ans[[1]];B=ans[[2]];C=ans[[3]];delta=ans[[4]];inv_S=ans[[5]]
+n=25
+R=mean(rfs$RF)
+w_t.2=(inv_S%*%(mean.return.25.2-R))/as.numeric(B-A*R)
+
+# Reconstruct Rm
+Rm1=cbind(ind2,matrix(unlist(wrs.25[ind2,c(-1)]),nrow = length(ind2),ncol = 25,byrow = F)%*%w_t.1)
+Rm2=cbind(ind1,matrix(unlist(wrs.25[ind1,c(-1)]),nrow = length(ind1),ncol = 25,byrow = F)%*%w_t.2)
+
+Rm = data.frame(rbind(Rm1,Rm2))
+Rm = Rm$V2[order(Rm$ind2)]
+Rm_rf=Rm-rfs$RF
+
+# Calculate Beta 3
+betas4=matrix(NA,nrow=25,ncol = 1,dimnames = list(1:25,c("beta")))
+for( i in 1:25){
+res=lm(formula = wrs.25[,i+1]~Rm_rf,na.action = na.omit)
+betas4[i]=res$coefficients[2]
+}
+
+# c) Regress Time-series CAPM
+res4=matrix(NA,nrow = 1085,ncol = 2,dimnames = list(1:1085,c("alpha","gamma.M")))
+
+for( i in 1:1085){
+fit=lm(formula = t(wrs.25[i,-1])~betas4,na.action = na.omit)
+res4[i,1]=fit$coefficients[1]
+res4[i,2]=fit$coefficients[2]
+}
+
+# Average and Stats
+means4=colMeans(res4,na.rm = T)
+sds4=apply(res4,2,function(x) sqrt(var(x)))
+ts4=abs(means4-colMeans(cbind(rfs$RF,Rm_rf),na.rm = T))/sds4*sqrt(nrow(res4))
+print("The mean of the estimates are:")
+round(means4,3)
+paste("The SD of the estimates are:")
+round(sds4,3)
+paste("The T-stats of the estimates are:")
+round(ts4,3)
+print("P-values of T-test:")
+2*pt(ts4,df=1083,lower.tail = F)
+
+# d)
+pdata4=data.frame(cbind(mean.return.25,betas4))
+qplot(data=pdata4,y = mean.return.25 ,x=beta,ylab="ave(R_i)",xlab = "Beta_i")+stat_smooth(method = lm)
+
+```
